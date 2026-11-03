@@ -30,9 +30,9 @@
     {
       "identity" : "fluidaudio",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/altic-dev/FluidAudio.git",
+      "location" : "https://github.com/jhgoodwin/FluidAudio.git",
       "state" : {
-        "revision" : "386f7195670b77f2954c7ee143ec63fcb50b6c3b"
+        "revision" : "3857a6d56aad6c1de4df47e072484d000ad3de9a"
       }
     },
     {

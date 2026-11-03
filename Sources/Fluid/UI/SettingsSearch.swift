@@ -71,6 +71,7 @@ enum SettingsSearchTarget: Hashable {
     case experimental
     case returnToStartingField
     case fasterLongDictation
+    case parakeetPreprocessorHardware
     case dictionaryMatcherExperiments
     case historyPerformance
     case dictationScreenContext
@@ -133,7 +134,7 @@ enum SettingsSearchTarget: Hashable {
         case .dataAndDiagnostics, .backupAndRestore, .debugLogs:
             return .dataAndDiagnostics
 
-        case .experimental, .returnToStartingField, .fasterLongDictation, .dictionaryMatcherExperiments, .historyPerformance, .dictationScreenContext:
+        case .experimental, .returnToStartingField, .fasterLongDictation, .parakeetPreprocessorHardware, .dictionaryMatcherExperiments, .historyPerformance, .dictationScreenContext:
             return .experimental
         }
     }
@@ -451,6 +452,11 @@ enum SettingsSearchIndex {
             target: .fasterLongDictation,
             title: "Faster Long Dictation",
             terms: ["experimental Parakeet reuse live windows remaining tail transcription"]
+        ),
+        .init(
+            target: .parakeetPreprocessorHardware,
+            title: "Speech Preprocessor Hardware",
+            terms: ["Parakeet preprocessor CPU GPU Neural Engine compute units truncated missing ending preview rewriting"]
         ),
         .init(
             target: .experimental,

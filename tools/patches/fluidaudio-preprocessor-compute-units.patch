@@ -1,0 +1,110 @@
+diff --git a/Sources/FluidAudio/ASR/Parakeet/AsrModels.swift b/Sources/FluidAudio/ASR/Parakeet/AsrModels.swift
+index dc8b51b..f5a3552 100644
+--- a/Sources/FluidAudio/ASR/Parakeet/AsrModels.swift
++++ b/Sources/FluidAudio/ASR/Parakeet/AsrModels.swift
+@@ -193,8 +193,14 @@ extension AsrModels {
+         let computeUnits: MLComputeUnits
+     }
+ 
++    /// The standalone Parakeet preprocessor (mel spectrogram + per-feature normalization)
++    /// defaults to CPU. Callers may override it: on some machines the CPU path is the one that
++    /// misbehaves (see `load(from:configuration:version:preprocessorComputeUnits:progressHandler:)`).
++    public static let defaultPreprocessorComputeUnits: MLComputeUnits = .cpuOnly
++
+     private static func createModelSpecs(
+-        using config: MLModelConfiguration, version: AsrModelVersion
++        using config: MLModelConfiguration, version: AsrModelVersion,
++        preprocessorComputeUnits: MLComputeUnits? = nil
+     ) -> [ModelSpec] {
+         if version.hasFusedEncoder {
+             // Fused preprocessor+encoder runs on ANE (it contains the conformer encoder)
+@@ -204,8 +210,12 @@ extension AsrModels {
+         }
+         return [
+             // Preprocessor ops map to CPU-only across all platforms. XCode profiling shows
+-            // that 100% of the the operations map to the CPU anyways.
+-            ModelSpec(fileName: Names.preprocessorFile, computeUnits: .cpuOnly),
++            // that 100% of the the operations map to the CPU anyways. Callers can override
++            // this when the CPU result is wrong on their OS/hardware.
++            ModelSpec(
++                fileName: Names.preprocessorFile,
++                computeUnits: preprocessorComputeUnits ?? defaultPreprocessorComputeUnits
++            ),
+ 
+             ModelSpec(fileName: Names.encoderFile, computeUnits: config.computeUnits),
+         ]
+@@ -242,6 +252,9 @@ extension AsrModels {
+     ///                   computeUnits will be respected. When nil, platform-optimized defaults
+     ///                   are used (per-model optimization based on model type).
+     ///   - version: ASR model version to load (defaults to v3)
++    ///   - preprocessorComputeUnits: Compute units for the standalone preprocessor. `nil` uses
++    ///                   `defaultPreprocessorComputeUnits` (`.cpuOnly`). Ignored for fused
++    ///                   preprocessor+encoder models, which follow `configuration`.
+     ///
+     /// - Returns: Loaded ASR models
+     ///
+@@ -252,14 +265,19 @@ extension AsrModels {
+         from directory: URL,
+         configuration: MLModelConfiguration? = nil,
+         version: AsrModelVersion = .v3,
++        preprocessorComputeUnits: MLComputeUnits? = nil,
+         progressHandler: DownloadUtils.ProgressHandler? = nil
+     ) async throws -> AsrModels {
+         try Task.checkCancellation()
+         if version.requiresLocalModels {
+-            return try await loadLocalOnly(from: directory, version: version, configuration: configuration)
++            return try await loadLocalOnly(
++                from: directory, version: version, configuration: configuration,
++                preprocessorComputeUnits: preprocessorComputeUnits)
+         }
+         if !version.hasFusedEncoder, try ParakeetSplitEncoder.pieceURLs(in: directory) != nil {
+-            return try await loadLocalOnly(from: directory, version: version, configuration: configuration)
++            return try await loadLocalOnly(
++                from: directory, version: version, configuration: configuration,
++                preprocessorComputeUnits: preprocessorComputeUnits)
+         }
+         logger.info("Loading ASR models from: \(directory.path)")
+ 
+@@ -267,7 +285,8 @@ extension AsrModels {
+ 
+         let parentDirectory = directory.deletingLastPathComponent()
+         // Load preprocessor and encoder first; decoder and joint are loaded below as well.
+-        let specs = createModelSpecs(using: config, version: version)
++        let specs = createModelSpecs(
++            using: config, version: version, preprocessorComputeUnits: preprocessorComputeUnits)
+ 
+         var loadedModels: [String: MLModel] = [:]
+ 
+@@ -332,14 +351,16 @@ extension AsrModels {
+     /// Optional background work should use this entry point and defer recovery to explicit model setup.
+     public static func loadLocalOnly(
+         from directory: URL, version: AsrModelVersion = .v3,
+-        configuration: MLModelConfiguration? = nil
++        configuration: MLModelConfiguration? = nil,
++        preprocessorComputeUnits: MLComputeUnits? = nil
+     ) async throws -> AsrModels {
+         try Task.checkCancellation()
+         guard directory.isFileURL else {
+             throw AsrModelsError.loadingFailed("Local model loading requires a file URL")
+         }
+         let configuration = configuration ?? defaultConfiguration()
+-        let specs = createModelSpecs(using: configuration, version: version)
++        let specs = createModelSpecs(
++            using: configuration, version: version, preprocessorComputeUnits: preprocessorComputeUnits)
+         let pieceURLs = version.hasFusedEncoder ? nil : try ParakeetSplitEncoder.pieceURLs(in: directory)
+         let localSpecs = pieceURLs == nil ? specs : specs.filter { $0.fileName != Names.encoderFile }
+         let names =
+@@ -594,11 +615,13 @@ extension AsrModels {
+         to directory: URL? = nil,
+         configuration: MLModelConfiguration? = nil,
+         version: AsrModelVersion = .v3,
++        preprocessorComputeUnits: MLComputeUnits? = nil,
+         progressHandler: DownloadUtils.ProgressHandler? = nil
+     ) async throws -> AsrModels {
+         let targetDir = try await download(to: directory, version: version, progressHandler: progressHandler)
+         return try await load(
+             from: targetDir, configuration: configuration, version: version,
++            preprocessorComputeUnits: preprocessorComputeUnits,
+             progressHandler: progressHandler)
+     }
+ 

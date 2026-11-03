@@ -1563,10 +1563,10 @@
 /* Begin XCRemoteSwiftPackageReference section */
 		7C078DA32E3B386A00FB7CAC /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/altic-dev/FluidAudio.git";
+			repositoryURL = "https://github.com/jhgoodwin/FluidAudio.git";
 			requirement = {
 				kind = revision;
-				revision = 386f7195670b77f2954c7ee143ec63fcb50b6c3b;
+				revision = 3857a6d56aad6c1de4df47e072484d000ad3de9a;
 			};
 		};
 

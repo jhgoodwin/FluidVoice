@@ -1957,6 +1957,65 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Hardware that runs the Parakeet preprocessor: the step that turns audio into the
+    /// normalized mel features the speech model reads. It has no effect on accuracy when it
+    /// works; it is a setting because which hardware works differs by Mac and macOS release.
+    ///
+    /// Why this exists (Nov 2026, macOS 15.6.1, Apple Silicon, Fluid Speech Pro):
+    /// - FluidAudio hard-codes this model to CPU. Here the CPU result was nondeterministic:
+    ///   identical input produced different mel features across runs, and often every frame
+    ///   past a cut point (seen at ~4.1s and ~8.2s) came out as "no sound". The speech model
+    ///   then dropped everything after the cut. Live preview re-runs the preprocessor every
+    ///   interval, so the tail of the sentence appeared and vanished, and the final transcript
+    ///   kept whichever cut it happened to get.
+    /// - On the same input, CPU + GPU and All produced identical, complete features every run
+    ///   (full pipeline: 18/18 correct vs. about 1 in 4 on CPU). Neural Engine matched CPU.
+    /// - Upstream (FluidInference/FluidAudio #1074, #1079) hit the opposite case on macOS 27:
+    ///   a mel model on the Neural Engine broke and CPU was the fix. So no single choice is safe
+    ///   everywhere, and this stays user-selectable instead of hard-coded.
+    ///
+    /// Default stays CPU (FluidAudio's own default) so existing installs keep current behavior.
+    /// If transcripts lose their ending or the live preview keeps rewriting the same sentence,
+    /// try CPU + GPU. Changing it reloads the speech model.
+    enum ParakeetPreprocessorComputeUnits: String, CaseIterable, Identifiable, Codable {
+        case cpuOnly
+        case cpuAndGPU
+        case cpuAndNeuralEngine
+        case all
+
+        var id: String {
+            self.rawValue
+        }
+
+        var displayName: String {
+            switch self {
+            case .cpuOnly:
+                return "CPU (Default)"
+            case .cpuAndGPU:
+                return "CPU + GPU"
+            case .cpuAndNeuralEngine:
+                return "CPU + Neural Engine"
+            case .all:
+                return "All"
+            }
+        }
+    }
+
+    var parakeetPreprocessorComputeUnits: ParakeetPreprocessorComputeUnits {
+        get {
+            guard let raw = self.defaults.string(forKey: Keys.parakeetPreprocessorComputeUnits),
+                  let value = ParakeetPreprocessorComputeUnits(rawValue: raw)
+            else {
+                return .cpuOnly
+            }
+            return value
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue.rawValue, forKey: Keys.parakeetPreprocessorComputeUnits)
+        }
+    }
+
     /// Opt in to restoring the field captured at recording start.
     var returnDictationToStartingField: Bool {
         get { self.defaults.bool(forKey: Keys.returnDictationToStartingField) }
@@ -3754,6 +3813,7 @@ final class SettingsStore: ObservableObject {
             holdSpaceToMute: self.holdSpaceToMute,
             enableStreamingPreview: self.enableStreamingPreview,
             experimentalParakeetUnifiedFinalEnabled: self.experimentalParakeetUnifiedFinalEnabled,
+            parakeetPreprocessorComputeUnits: self.parakeetPreprocessorComputeUnits,
             returnDictationToStartingField: self.returnDictationToStartingField,
             showHistoryPerformanceMetrics: self.showHistoryPerformanceMetrics,
             skipSilentRecordingsEnabled: self.skipSilentRecordingsEnabled,
@@ -3916,6 +3976,9 @@ final class SettingsStore: ObservableObject {
         self.enableStreamingPreview = payload.enableStreamingPreview
         if let experimentalParakeetUnifiedFinalEnabled = payload.experimentalParakeetUnifiedFinalEnabled {
             self.experimentalParakeetUnifiedFinalEnabled = experimentalParakeetUnifiedFinalEnabled
+        }
+        if let parakeetPreprocessorComputeUnits = payload.parakeetPreprocessorComputeUnits {
+            self.parakeetPreprocessorComputeUnits = parakeetPreprocessorComputeUnits
         }
         if let returnDictationToStartingField = payload.returnDictationToStartingField {
             self.returnDictationToStartingField = returnDictationToStartingField
@@ -6051,6 +6114,7 @@ private extension SettingsStore {
         static let holdSpaceToMute = "HoldSpaceToMute"
         static let enableStreamingPreview = "EnableStreamingPreview"
         static let experimentalParakeetUnifiedFinalEnabled = "ExperimentalParakeetUnifiedFinalEnabled"
+        static let parakeetPreprocessorComputeUnits = "ParakeetPreprocessorComputeUnits"
         static let returnDictationToStartingField = "ReturnDictationToStartingField"
         static let showHistoryPerformanceMetrics = "ShowHistoryPerformanceMetrics"
         static let skipSilentRecordingsEnabled = "SkipSilentRecordingsEnabled"

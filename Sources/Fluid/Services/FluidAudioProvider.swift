@@ -189,7 +189,20 @@ nonisolated struct FluidAudioProviderEnhancementOptions {
 }
 
 #if arch(arm64)
+import CoreML
 import FluidAudio
+
+extension SettingsStore.ParakeetPreprocessorComputeUnits {
+    /// See `SettingsStore.ParakeetPreprocessorComputeUnits` for why this is user-selectable.
+    var mlComputeUnits: MLComputeUnits {
+        switch self {
+        case .cpuOnly: return .cpuOnly
+        case .cpuAndGPU: return .cpuAndGPU
+        case .cpuAndNeuralEngine: return .cpuAndNeuralEngine
+        case .all: return .all
+        }
+    }
+}
 
 /// TranscriptionProvider implementation using FluidAudio (optimized for Apple Silicon)
 /// This wraps the existing FluidAudio-based ASR for use on Apple Silicon Macs.
@@ -546,6 +559,12 @@ final class FluidAudioProvider: TranscriptionProvider {
         }
 
         let loadStart = Date()
+        // Preprocessor hardware is user-selectable; see SettingsStore.ParakeetPreprocessorComputeUnits.
+        let preprocessorUnits = SettingsStore.shared.parakeetPreprocessorComputeUnits
+        DebugLogger.shared.info(
+            "FluidAudioProvider: Parakeet preprocessor compute units=\(preprocessorUnits.rawValue)",
+            source: "FluidAudioProvider"
+        )
         // Download and load models
         let models: AsrModels
         do {
@@ -570,10 +589,15 @@ final class FluidAudioProvider: TranscriptionProvider {
                 }
                 try Task.checkCancellation()
                 progressRelay.report(.loading)
-                models = try await AsrModels.loadLocalOnly(from: modelCacheDirectory, version: asrModelVersion)
+                models = try await AsrModels.loadLocalOnly(
+                    from: modelCacheDirectory,
+                    version: asrModelVersion,
+                    preprocessorComputeUnits: preprocessorUnits.mlComputeUnits
+                )
             } else {
                 models = try await AsrModels.downloadAndLoad(
                     version: asrModelVersion,
+                    preprocessorComputeUnits: preprocessorUnits.mlComputeUnits,
                     progressHandler: fluidAudioProgressHandler
                 )
             }

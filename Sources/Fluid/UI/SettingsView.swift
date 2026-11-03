@@ -1482,6 +1482,10 @@ struct SettingsView: View {
 
                         Divider().padding(.vertical, 4)
 
+                        self.parakeetPreprocessorComputeUnitsSetting
+
+                        Divider().padding(.vertical, 4)
+
                         self.overlayClosingAnimationSetting
 
                         Divider().padding(.vertical, 4)
@@ -1742,6 +1746,65 @@ struct SettingsView: View {
     }
 
     // MARK: - Helper Views
+
+    /// Rationale and findings live on `SettingsStore.ParakeetPreprocessorComputeUnits`.
+    private var parakeetPreprocessorComputeUnitsSetting: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Speech Preprocessor Hardware")
+                    .font(self.theme.typography.bodyStrong)
+                    .foregroundStyle(self.settingsTitleText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Where Parakeet turns audio into model input. Try CPU + GPU if transcripts lose their ending or the live preview keeps rewriting the same sentence.")
+                    .font(self.theme.typography.bodySmall)
+                    .foregroundStyle(self.settingsSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Parakeet only. Which option works can differ by Mac and macOS version. Changing it reloads the speech model.")
+                    .font(self.theme.typography.bodySmall)
+                    .foregroundStyle(self.settingsSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+
+            FluidDropdownPicker(
+                "Speech preprocessor hardware",
+                selectedTitle: self.settings.parakeetPreprocessorComputeUnits.displayName,
+                selection: Binding(
+                    get: { self.settings.parakeetPreprocessorComputeUnits },
+                    set: { newValue in
+                        guard newValue != self.settings.parakeetPreprocessorComputeUnits else { return }
+                        self.settings.parakeetPreprocessorComputeUnits = newValue
+                        // Compute units are fixed when the model loads; reload like a model switch
+                        // (VoiceEngineSettingsViewModel.activateSpeechModel). Reset alone leaves the
+                        // model unloaded, and the next recording then has no live preview.
+                        self.asr.resetTranscriptionProvider()
+                        Task {
+                            do {
+                                try await self.asr.ensureAsrReady(source: .settings)
+                            } catch is CancellationError {
+                                DebugLogger.shared.info("Preprocessor hardware reload cancelled", source: "SettingsView")
+                            } catch {
+                                DebugLogger.shared.error("Failed to reload model after preprocessor hardware change: \(error)", source: "SettingsView")
+                                self.asr.errorTitle = "Model Reload Failed"
+                                self.asr.errorMessage = error.localizedDescription
+                                self.asr.showError = true
+                            }
+                        }
+                    }
+                )
+            ) {
+                ForEach(SettingsStore.ParakeetPreprocessorComputeUnits.allCases) { units in
+                    Text(units.displayName).tag(units)
+                }
+            }
+            .fluidDropdownStyle()
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(minWidth: 170, alignment: .trailing)
+            .disabled(self.asr.isRunningOrStarting)
+        }
+        .settingsSearchTarget(.parakeetPreprocessorHardware)
+    }
 
     private func settingsToggleRow(
         title: String,

@@ -70,6 +70,8 @@ struct SettingsBackupPayload: Codable, Equatable {
     let enableStreamingPreview: Bool
     // Optional so backups created before incremental Parakeet finalization still decode.
     let experimentalParakeetUnifiedFinalEnabled: Bool?
+    // Optional so backups created before the preprocessor hardware setting still decode.
+    var parakeetPreprocessorComputeUnits: SettingsStore.ParakeetPreprocessorComputeUnits? = nil
     // Optional to preserve compatibility with older backups.
     let returnDictationToStartingField: Bool?
     // Optional so backups created before History performance details still decode.
