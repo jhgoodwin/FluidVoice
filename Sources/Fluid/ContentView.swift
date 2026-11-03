@@ -503,7 +503,7 @@ struct ContentView: View {
         let observed = self.applyShortcutStateChanges(to: sized)
         let withToolbar = self.applyMainWindowToolbar(to: observed)
 
-        return withToolbar
+        let presented = withToolbar
             .environment(\.fluidToolbarTrailingInset, self.toolbarTrailingInset)
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 self.refreshAccessibilityPermissionState()
@@ -576,6 +576,12 @@ struct ContentView: View {
             } message: {
                 Text(self.asr.errorMessage)
             }
+
+        return self.applyDeviceAndLifecycleChanges(to: presented)
+    }
+
+    private func applyDeviceAndLifecycleChanges<Content: View>(to view: Content) -> some View {
+        view
             .onChange(of: self.audioObserver.changeTick) { _, _ in
                 // Hardware change detected → refresh device lists
                 self.refreshDevices()
