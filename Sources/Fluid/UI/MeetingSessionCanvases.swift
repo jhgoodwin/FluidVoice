@@ -7,6 +7,8 @@ struct MeetingRecordingCanvas: View {
     let liveTranscript: MeetingLiveTranscriptSnapshot
     let isStopping: Bool
     let onStop: () -> Void
+    var onRename: ((String) -> Void)? = nil
+    var errorMessage: String? = nil
 
     @Environment(\.theme) private var theme
 
@@ -35,12 +37,29 @@ struct MeetingRecordingCanvas: View {
             VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
                 MeetingDocumentTitle(title: self.session.title)
                     .lineLimit(2)
-                    .help(self.session.title)
+                    .editableTitle(
+                        self.session.title,
+                        id: String(describing: self.session.id),
+                        enabled: !self.isStopping && self.onRename != nil,
+                        editorFont: .system(.largeTitle, design: .serif).weight(.medium),
+                        singleClickEnabled: true,
+                        submitUnchanged: true,
+                        onRename: { self.onRename?($0) }
+                    )
+                    .accessibilityIdentifier("meeting-recording-title")
                 Text(self.sourceSummary)
                     .font(self.theme.typography.caption)
                     .foregroundStyle(self.theme.palette.secondaryText)
                     .lineLimit(1)
                     .help(self.sourceSummary)
+            }
+
+            if let errorMessage, !errorMessage.isEmpty {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(self.theme.typography.bodySmall)
+                    .foregroundStyle(self.theme.palette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("meeting-recording-action-error")
             }
 
             VStack(alignment: .leading, spacing: self.theme.metrics.spacing.md) {
@@ -106,7 +125,7 @@ struct MeetingRecordingCanvas: View {
 
     @ViewBuilder
     private var sourceHealth: some View {
-        if self.session.mode == .onlineCall {
+        if self.session.mode.capturesComputerAudio {
             MeetingTrackHealthRow(title: "Meeting audio", systemImage: "macwindow", health: self.trackHealth[.applicationAudio] ?? .waiting)
         }
         MeetingTrackHealthRow(title: "Microphone", systemImage: "mic", health: self.trackHealth[.microphone] ?? .waiting)
@@ -114,7 +133,7 @@ struct MeetingRecordingCanvas: View {
 
     private var sourceSummary: String {
         let microphoneName = self.session.selectedMicrophone.displayName
-        guard self.session.mode == .onlineCall else { return microphoneName }
+        guard self.session.mode.capturesComputerAudio else { return microphoneName }
         let applicationName = self.session.capturedApplication?.displayName ?? "Meeting audio"
         return "\(applicationName) · \(microphoneName)"
     }
@@ -456,8 +475,9 @@ struct MeetingResultCanvas: View {
                             detail: warning,
                             isSubtle: true
                         )
-                    } else if self.session.events.contains(where: { $0.kind == .transcriptCoverageIncomplete }) {
-                        MeetingAudioTranscriptNotice(text: "Some recorded audio was not transcribed.")
+                    }
+                    if self.session.hasIncompleteTranscriptCoverage {
+                        MeetingAudioTranscriptNotice(text: "Transcription may be incomplete.")
                     }
                     if !activeSpeakers.isEmpty {
                         VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
@@ -728,7 +748,7 @@ struct MeetingResultCanvas: View {
             .disabled(!hasText || self.documentSection != .transcript)
             Divider()
             self.renameMeetingAction
-            Button("Transcribe in another language…", systemImage: "globe") {
+            Button("Redo transcript…", systemImage: "arrow.clockwise") {
                 self.retranscriptionLanguageCode = self.session.languageCode
                 self.isChoosingRetranscriptionLanguage = true
             }
@@ -805,7 +825,7 @@ struct MeetingResultCanvas: View {
             Label(Self.durationText(self.session.duration), systemImage: "clock")
                 .fixedSize()
             Text("·").accessibilityHidden(true)
-            Label(self.sourceName, systemImage: self.session.mode == .onlineCall ? "macwindow" : "person.2")
+            Label(self.sourceName, systemImage: self.session.mode.capturesComputerAudio ? "macwindow" : "person.2")
                 .lineLimit(1)
                 .help("\(self.sourceName)\nMicrophone: \(self.session.selectedMicrophone.displayName)")
             Text("·").accessibilityHidden(true)
@@ -1323,9 +1343,9 @@ private struct MeetingRetranscriptionLanguageSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: self.theme.metrics.spacing.lg) {
-            Text("Transcribe in another language")
+            Text("Redo transcript")
                 .font(self.theme.typography.title)
-            Text("The saved audio is transcribed again and replaces this transcript. Choose a language the meeting model supports.")
+            Text("Transcribe saved audio again with your latest saved replacements. Keep the current language or choose another. This replaces the transcript.")
                 .font(self.theme.typography.body)
                 .foregroundStyle(self.theme.palette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1354,7 +1374,8 @@ private struct MeetingRetranscriptionLanguageSheet: View {
                     .disabled(
                         self.isBusy || !MeetingRetranscriptionLanguage.canRetranscribe(
                             selection: self.selection,
-                            currentLanguageCode: self.currentLanguageCode
+                            currentLanguageCode: self.currentLanguageCode,
+                            allowsSameLanguage: true
                         )
                     )
             }

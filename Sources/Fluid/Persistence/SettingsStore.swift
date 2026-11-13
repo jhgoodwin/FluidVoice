@@ -1643,7 +1643,7 @@ final class SettingsStore: ObservableObject {
             self.selectedModel = nil
         }
 
-        if retiredProviderIDs.contains(self.commandModeSelectedProviderID) {
+        if self.commandModeSelectedProviderID == "apple-intelligence-disabled" {
             self.commandModeSelectedProviderID = ""
             self.commandModeSelectedModel = nil
         }
@@ -2139,7 +2139,40 @@ final class SettingsStore: ObservableObject {
             guard let data = try? JSONEncoder().encode(newValue) else {
                 return
             }
+            let oldValue = self.meetingRecordingDefaults
             self.defaults.set(data, forKey: Keys.meetingRecordingDefaults)
+            if oldValue.mode != newValue.mode || oldValue.applicationBundleIdentifier != newValue.applicationBundleIdentifier {
+                NotificationCenter.default.post(name: .meetingRecordingSourceChoiceDidChange, object: nil)
+            }
+        }
+    }
+
+    /// Publish a source choice only after both preferences agree. Observers may synchronously
+    /// refresh a bound picker, so notifying between these writes can overwrite the user's choice.
+    func saveMeetingRecordingSource(_ configuration: MeetingRecordingDefaults, recentApplication: MeetingApplicationIdentity?) {
+        var application = recentApplication
+        application?.windowID = nil
+        application?.displayID = nil
+        guard let configurationData = try? JSONEncoder().encode(configuration) else { return }
+        let applicationData: Data?
+        if let application {
+            guard let data = try? JSONEncoder().encode(application) else { return }
+            applicationData = data
+        } else {
+            applicationData = nil
+        }
+        let previous = self.meetingRecordingDefaults
+        let sourceChanged = previous.mode != configuration.mode
+            || previous.applicationBundleIdentifier != configuration.applicationBundleIdentifier
+            || self.meetingRecentApplication != application
+        self.defaults.set(configurationData, forKey: Keys.meetingRecordingDefaults)
+        if let applicationData {
+            self.defaults.set(applicationData, forKey: Keys.meetingRecentApplication)
+        } else {
+            self.defaults.removeObject(forKey: Keys.meetingRecentApplication)
+        }
+        if sourceChanged {
+            NotificationCenter.default.post(name: .meetingRecordingSourceChoiceDidChange, object: nil)
         }
     }
 
@@ -2151,13 +2184,17 @@ final class SettingsStore: ObservableObject {
         }
         set {
             guard var application = newValue else {
+                guard self.defaults.object(forKey: Keys.meetingRecentApplication) != nil else { return }
                 self.defaults.removeObject(forKey: Keys.meetingRecentApplication)
+                NotificationCenter.default.post(name: .meetingRecordingSourceChoiceDidChange, object: nil)
                 return
             }
             application.windowID = nil
             application.displayID = nil
-            guard let data = try? JSONEncoder().encode(application) else { return }
+            guard application != self.meetingRecentApplication,
+                  let data = try? JSONEncoder().encode(application) else { return }
             self.defaults.set(data, forKey: Keys.meetingRecentApplication)
+            NotificationCenter.default.post(name: .meetingRecordingSourceChoiceDidChange, object: nil)
         }
     }
 
@@ -2720,6 +2757,7 @@ final class SettingsStore: ObservableObject {
         case fluidSfx2 = "fluid_sfx_2"
         case fluidSfx3 = "fluid_sfx_3"
         case fluidSfx4 = "fluid_sfx_4"
+        case cream, thock, petal
 
         var id: String {
             self.rawValue
@@ -2728,11 +2766,14 @@ final class SettingsStore: ObservableObject {
         var displayName: String {
             switch self {
             case .none: return "None"
-            case .fluidSfx0: return "Fluid SFX 0"
-            case .fluidSfx1: return "Fluid SFX 1"
-            case .fluidSfx2: return "Fluid SFX 2"
-            case .fluidSfx3: return "Fluid SFX 3"
-            case .fluidSfx4: return "Fluid SFX 4"
+            case .fluidSfx0: return "Original · SFX 0"
+            case .fluidSfx1: return "Ember · SFX 1"
+            case .fluidSfx2: return "Rise · SFX 2"
+            case .fluidSfx3: return "Drift · SFX 3"
+            case .fluidSfx4: return "Echo · SFX 4"
+            case .cream: return "Cream"
+            case .thock: return "Thock"
+            case .petal: return "Petal"
             }
         }
 
@@ -2744,13 +2785,23 @@ final class SettingsStore: ObservableObject {
             case .fluidSfx2: return "FV_start_2"
             case .fluidSfx3: return "sfx_3"
             case .fluidSfx4: return "sfx_4"
+            case .cream: return "cue_cream_start"
+            case .thock: return "cue_thock_start"
+            case .petal: return "cue_petal_start"
             }
         }
 
         var stopSoundFileName: String? {
             switch self {
             case .fluidSfx0: return "FV_end_0"
-            case .none, .fluidSfx1, .fluidSfx2, .fluidSfx3, .fluidSfx4: return nil
+            case .cream: return "cue_cream_stop"
+            case .thock: return "cue_thock_stop"
+            case .petal: return "cue_petal_stop"
+            case .fluidSfx1: return "FV_stop_1"
+            case .fluidSfx2: return "FV_stop_2"
+            case .fluidSfx3: return "FV_stop_3"
+            case .fluidSfx4: return "FV_stop_4"
+            case .none: return nil
             }
         }
     }
@@ -2767,11 +2818,23 @@ final class SettingsStore: ObservableObject {
         set {
             objectWillChange.send()
             self.defaults.set(newValue.rawValue, forKey: Keys.accentColorOption)
+            self.defaults.removeObject(forKey: Keys.customAccentColorHex)
+        }
+    }
+
+    /// Overrides the preset when set. Kept separate from `AccentColorOption` so backups stay readable by older builds.
+    var customAccentColorHex: String? {
+        get { self.defaults.string(forKey: Keys.customAccentColorHex) }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.customAccentColorHex)
         }
     }
 
     var accentColor: Color {
-        Color(hex: self.accentColorOption.hex) ?? Color(red: 0.227, green: 0.784, blue: 0.776)
+        self.customAccentColorHex.flatMap { Color(hex: $0) }
+            ?? Color(hex: self.accentColorOption.hex)
+            ?? Color(red: 0.227, green: 0.784, blue: 0.776)
     }
 
     var themePreference: ThemePreference {
@@ -3800,6 +3863,7 @@ final class SettingsStore: ObservableObject {
             hideFromDockAndAppSwitcher: self.hideFromDockAndAppSwitcher,
             showMainWindowAtLoginLaunch: self.showMainWindowAtLoginLaunch,
             accentColorOption: self.accentColorOption,
+            customAccentColorHex: self.customAccentColorHex,
             transcriptionStartSound: self.transcriptionStartSound,
             transcriptionSoundVolume: self.transcriptionSoundVolume,
             transcriptionSoundIndependentVolume: false,
@@ -3881,7 +3945,8 @@ final class SettingsStore: ObservableObject {
             fileTranscriptionExpectedSpeakerCount: self.fileTranscriptionExpectedSpeakerCount,
             meetingRecordingDefaults: self.meetingRecordingDefaults,
             privateAIIdleUnload: self.privateAIIdleUnload,
-            dictationPromptConfigurations: self.dictationPromptConfigurations
+            dictationPromptConfigurations: self.dictationPromptConfigurations,
+            automaticDictionaryPromptDelay: self.automaticDictionaryPromptDelay
         )
     }
 
@@ -3930,7 +3995,9 @@ final class SettingsStore: ObservableObject {
             MeetingBackendID(rawValue: $0)
         } ?? .productionDefault
         if let meetingRecordingDefaults = payload.meetingRecordingDefaults {
-            self.meetingRecordingDefaults = meetingRecordingDefaults
+            // The restored source supersedes this Mac's previous pick. Backups do not contain
+            // process identities, so the restored app will be resolved afresh at recording start.
+            self.saveMeetingRecordingSource(meetingRecordingDefaults, recentApplication: nil)
         }
         self.primaryDictationShortcuts = payload.primaryDictationShortcuts ?? [payload.hotkeyShortcut]
         self.promptModeHotkeyShortcut = payload.promptModeHotkeyShortcut
@@ -3962,6 +4029,7 @@ final class SettingsStore: ObservableObject {
         self.hideFromDockAndAppSwitcher = payload.hideFromDockAndAppSwitcher
         self.showMainWindowAtLoginLaunch = payload.showMainWindowAtLoginLaunch ?? true
         self.accentColorOption = payload.accentColorOption
+        self.customAccentColorHex = payload.customAccentColorHex
         self.transcriptionStartSound = payload.transcriptionStartSound
         self.transcriptionSoundVolume = payload.transcriptionSoundVolume
         self.autoUpdateCheckEnabled = payload.autoUpdateCheckEnabled
@@ -4088,6 +4156,9 @@ final class SettingsStore: ObservableObject {
         self.continuousDictationSpacingEnabled = payload.continuousDictationSpacingEnabled ?? restoredContinuousDictationModeEnabled
         self.contextAwareCapitalizationEnabled = payload.contextAwareCapitalizationEnabled ?? restoredContinuousDictationModeEnabled
         self.pauseMediaDuringTranscription = payload.pauseMediaDuringTranscription
+        if let automaticDictionaryPromptDelay = payload.automaticDictionaryPromptDelay {
+            self.automaticDictionaryPromptDelay = automaticDictionaryPromptDelay
+        }
         if let automaticDictionaryLearningEnabled = payload.automaticDictionaryLearningEnabled {
             self.automaticDictionaryLearningEnabled = automaticDictionaryLearningEnabled
         }
@@ -5255,6 +5326,37 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    enum AutomaticDictionaryPromptDelay: Int, Codable, CaseIterable, Identifiable {
+        case threeQuarters = 750
+        case one = 1000
+        case two = 2000
+        case three = 3000
+
+        var id: Int { self.rawValue }
+        var displayName: String {
+            switch self {
+            case .threeQuarters: "0.75 seconds"
+            case .one: "1 second"
+            case .two: "2 seconds"
+            case .three: "3 seconds"
+            }
+        }
+
+        var inactivityNanoseconds: UInt64 { UInt64(self.rawValue) * 1_000_000 }
+        // Leaving the corrected word should never wait longer than inactivity.
+        var completionNanoseconds: UInt64 { min(self.inactivityNanoseconds, 1_000_000_000) }
+    }
+
+    var automaticDictionaryPromptDelay: AutomaticDictionaryPromptDelay {
+        get {
+            AutomaticDictionaryPromptDelay(rawValue: self.defaults.integer(forKey: Keys.automaticDictionaryPromptDelay)) ?? .three
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue.rawValue, forKey: Keys.automaticDictionaryPromptDelay)
+        }
+    }
+
     var automaticDictionaryLearningEnabled: Bool {
         get { self.defaults.object(forKey: Keys.automaticDictionaryLearningEnabled) as? Bool ?? true }
         set {
@@ -6105,6 +6207,7 @@ private extension SettingsStore {
         static let launchAtStartup = "LaunchAtStartup"
         static let showInDock = "ShowInDock"
         static let accentColorOption = "AccentColorOption"
+        static let customAccentColorHex = "CustomAccentColorHex"
         static let themePreference = "ThemePreference"
         static let enableTranscriptionSounds = "EnableTranscriptionSounds"
         static let transcriptionStartSound = "TranscriptionStartSound"
@@ -6207,6 +6310,7 @@ private extension SettingsStore {
         static let customDictionaryEntries = "CustomDictionaryEntries"
         static let automaticDictionaryLearningEnabled = "AutomaticDictionaryLearningEnabled"
         static let automaticDictionarySuggestionFrequency = "AutomaticDictionarySuggestionFrequency"
+        static let automaticDictionaryPromptDelay = "AutomaticDictionaryPromptDelay"
         static let vocabularyBoostingEnabled = "VocabularyBoostingEnabled"
         static let pronunciationMatchingEnabled = "PronunciationMatchingEnabled"
 
