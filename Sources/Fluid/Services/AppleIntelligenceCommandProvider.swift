@@ -168,7 +168,7 @@ extension AppleIntelligenceCommandProvider {
         let model = SystemLanguageModel(guardrails: .permissiveContentTransformations)
         var turns = allTurns
         var entries = self.entries(turns)
-        while try await model.tokenCount(for: entries) > model.contextSize - self.outputReserveTokens {
+        while try await self.isOverContextLimit(model: model, entries: entries, turns: turns) {
             let rest = AppleIntelligenceTurn.droppingOldestRequest(turns)
             guard !rest.isEmpty else { throw AppleIntelligenceCommandError.contextTooLong }
             turns = rest
@@ -185,6 +185,22 @@ extension AppleIntelligenceCommandProvider {
             return ("", AppleIntelligenceCall(id: UUID().uuidString, command: args.command, workingDirectory: args.workingDirectory, purpose: args.purpose))
         }
     }
+
+    // tokenCount/contextSize need the macOS 27 SDK (Xcode 27, Swift 6.4). Xcode 26.3 is the
+    // newest that runs on macOS Sequoia 15.6, so fall back to an estimate there.
+    #if compiler(>=6.4)
+    private static func isOverContextLimit(model: SystemLanguageModel, entries: [Transcript.Entry], turns: [AppleIntelligenceTurn]) async throws -> Bool {
+        try await model.tokenCount(for: entries) > model.contextSize - self.outputReserveTokens
+    }
+    #else
+    private static let fallbackContextSize = 4096
+
+    // ~4 characters per token estimate against a fixed context size.
+    private static func isOverContextLimit(model: SystemLanguageModel, entries: [Transcript.Entry], turns: [AppleIntelligenceTurn]) async throws -> Bool {
+        let characters = turns.reduce(0) { $0 + $1.promptText.count }
+        return characters / 4 > self.fallbackContextSize - self.outputReserveTokens
+    }
+    #endif
 
     private static func entries(_ turns: [AppleIntelligenceTurn]) -> [Transcript.Entry] {
         let tool = TerminalCommandTool()
