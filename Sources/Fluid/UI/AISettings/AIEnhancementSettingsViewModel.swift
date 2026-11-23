@@ -38,6 +38,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
     @Published var isFetchingModels: Bool = false
     @Published var refreshingProviderID: String? = nil
     @Published var fetchModelsError: String? = nil
+    @Published var fetchModelsErrorProviderID: String? = nil
 
     // Reasoning Configuration
     @Published var showingReasoningConfig: Bool = false
@@ -236,7 +237,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
 
         self.refreshVerifiedProviders()
         self.selectSoleVerifiedProviderIfNeeded()
-        self.connectionStatus = self.connectionStatusByProvider[self.selectedProviderID] ?? .unknown
+        self.connectionStatus = self.connectionStatus(for: self.selectedProviderID)
         self.refreshProviderItems()
         self.syncPromptSelectionForSelectedProvider()
 
@@ -306,7 +307,9 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
     }
 
     func connectionStatus(for providerID: String) -> AIConnectionStatus {
-        self.connectionStatusByProvider[providerID] ?? .unknown
+        let status = self.connectionStatusByProvider[providerID] ?? .unknown
+        guard status == .unknown else { return status }
+        return self.isModelVerified(for: providerID) ? .success : .unknown
     }
 
     func connectionErrorMessage(for providerID: String) -> String {
@@ -348,7 +351,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
             self.clearConnectionError(for: providerID)
         }
         if providerID == self.selectedProviderID {
-            self.connectionStatus = status
+            self.connectionStatus = self.connectionStatus(for: providerID)
         }
         // Refresh cached lists when verification status changes
         self.refreshProviderItems()
@@ -510,7 +513,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
     private func selectProviderForUse(_ providerID: String) {
         self.selectedProviderID = providerID
         self.handleProviderChange(providerID)
-        self.connectionStatus = self.connectionStatusByProvider[providerID] ?? .unknown
+        self.connectionStatus = self.connectionStatus(for: providerID)
         self.connectionErrorMessage = self.connectionErrorMessage(for: providerID)
     }
 
@@ -1255,6 +1258,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         self.refreshingProviderID = self.selectedProviderID
         self.isFetchingModels = true
         self.fetchModelsError = nil
+        self.fetchModelsErrorProviderID = self.selectedProviderID
         defer {
             self.isFetchingModels = false
             self.refreshingProviderID = nil
@@ -1365,6 +1369,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         self.refreshingProviderID = providerID
         self.isFetchingModels = true
         self.fetchModelsError = nil
+        self.fetchModelsErrorProviderID = providerID
         defer {
             self.isFetchingModels = false
             self.refreshingProviderID = nil
@@ -1425,7 +1430,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         }
     }
 
-    private func providerBaseURL(for providerID: String) -> String {
+    func providerBaseURL(for providerID: String) -> String {
         guard !providerID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
 
         let currentBaseURL = self.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1529,7 +1534,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
             }
         }
         self.connectionStatusByProvider = statuses
-        self.connectionStatus = statuses[self.selectedProviderID] ?? .unknown
+        self.connectionStatus = self.connectionStatus(for: self.selectedProviderID)
     }
 
     /// No-op: never auto-select a provider. The user's selection is sticky.

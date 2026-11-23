@@ -1097,16 +1097,18 @@ extension AIEnhancementSettingsView {
     private func providerDetailsSection(for item: ProviderItem, managementLayout: Bool = false) -> AnyView {
         let providerKey = self.viewModel.providerKey(for: item.id)
         let isCustom = !ModelRepository.shared.isBuiltIn(item.id)
-        let baseURL = self.viewModel.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isLocal = self.viewModel.isLocalEndpoint(baseURL)
         let apiKeyValue = self.viewModel.providerAPIKey(for: item.id)
-        let hasAPIKey = !apiKeyValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let models = self.viewModel.availableModelsByProvider[providerKey] ?? []
         let hasModels = !models.isEmpty
-        let isRefreshing = self.viewModel.isFetchingModels && self.viewModel.selectedProviderID == item.id
+        let isRefreshing = self.viewModel.refreshingProviderID == item.id
+        let isVerifying = self.viewModel.isTestingConnection && self.viewModel.selectedProviderID == item.id
         let hasName = isCustom ? !(self.viewModel.savedProviders.first { $0.id == item.id }?.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : true
-        let canFetchModels = hasName && (isLocal ? !baseURL.isEmpty : (hasAPIKey && !baseURL.isEmpty))
-        let canVerify = hasModels && !self.viewModel.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && canFetchModels
+        let eligibility = ProviderVerificationEligibility(
+            hasName: hasName, baseURL: self.providerBaseURL(for: item), apiKey: apiKeyValue, models: models,
+            selectedModel: self.viewModel.selectedModel(for: item.id)
+        ) { self.viewModel.isLocalEndpoint($0) }
+        let canFetchModels = eligibility.canFetchModels
+        let canVerify = eligibility.canVerify
         let isModelVerified = self.viewModel.isModelVerified(for: item.id)
         let apiKeyBinding = Binding(
             get: { self.viewModel.providerAPIKey(for: item.id) },
@@ -1279,7 +1281,7 @@ extension AIEnhancementSettingsView {
                     self.providerErrorPreview(self.viewModel.connectionErrorMessage(for: item.id), lineLimit: 8)
                 }
 
-                if let error = self.viewModel.fetchModelsError, !error.isEmpty {
+                if self.viewModel.fetchModelsErrorProviderID == item.id, let error = self.viewModel.fetchModelsError, !error.isEmpty {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.fluidSystem(.caption))
@@ -1304,10 +1306,11 @@ extension AIEnhancementSettingsView {
                             .help("Successfully tested \(ModelDisplayName.forID(self.viewModel.selectedModel(for: item.id))) with this endpoint and API key.")
                     } else {
                         Button(action: {
+                            self.viewModel.configureProvider(item.id)
                             Task { await self.viewModel.testAPIConnection() }
                         }) {
                             HStack(spacing: 6) {
-                                if self.viewModel.isTestingConnection {
+                                if isVerifying {
                                     ProgressView()
                                         .controlSize(.mini)
                                         .fixedSize()
@@ -1315,7 +1318,7 @@ extension AIEnhancementSettingsView {
                                     Image(systemName: "checkmark.shield")
                                         .font(.fluidSystem(size: 12))
                                 }
-                                Text(self.viewModel.isTestingConnection ? "Verifying…" : "Verify model")
+                                Text(isVerifying ? "Verifying…" : "Verify model")
                                     .font(self.theme.typography.bodyStrong)
                             }
                         }
@@ -1328,7 +1331,7 @@ extension AIEnhancementSettingsView {
                     HStack(spacing: 6) {
                         Image(systemName: "info.circle")
                             .font(.fluidSystem(.caption))
-                        Text(hasModels ? "Select a model to enable verification" : "Refresh models to enable verification")
+                        Text(canFetchModels ? (hasModels ? "Select a model to enable verification" : "Refresh models to enable verification") : "Finish the provider connection details to enable verification")
                             .font(.fluidSystem(.caption))
                     }
                     .foregroundStyle(.secondary)
@@ -1341,8 +1344,11 @@ extension AIEnhancementSettingsView {
                     Button(role: .destructive) {
                         if managementLayout {
                             self.showingRemoveProviderConfirmation = true
-                        } else if self.viewModel.deleteCurrentProvider() {
-                            self.expandedProviderID = nil
+                        } else {
+                            self.viewModel.configureProvider(item.id)
+                            if self.viewModel.deleteCurrentProvider() {
+                                self.expandedProviderID = nil
+                            }
                         }
                     } label: {
                         HStack(spacing: 6) {
@@ -1468,12 +1474,12 @@ extension AIEnhancementSettingsView {
         let isFluidVerified = self.isPrivateAIModelVerified(fluidModel)
         let isFluidTesting = self.viewModel.isTestingConnection && self.viewModel.selectedProviderID == PrivateAIProviderFeature.shared.providerID
         let isFluidBusy = self.privateAIController.isBusy || isFluidDownloading || isFluidLoading || isFluidTesting
-        let isRefreshing = self.viewModel.isFetchingModels && self.viewModel.selectedProviderID == item.id
-        let baseURL = self.providerBaseURL(for: item).trimmingCharacters(in: .whitespacesAndNewlines)
-        let isLocal = self.viewModel.isLocalEndpoint(baseURL)
-        let apiKeyValue = self.viewModel.providerAPIKey(for: item.id)
-        let hasAPIKey = !apiKeyValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let canFetchModels = isLocal ? !baseURL.isEmpty : (hasAPIKey && !baseURL.isEmpty)
+        let isRefreshing = self.viewModel.refreshingProviderID == item.id
+        let canFetchModels = ProviderVerificationEligibility(
+            hasName: item.isBuiltIn || !(self.viewModel.savedProviders.first { $0.id == item.id }?.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            baseURL: self.providerBaseURL(for: item), apiKey: self.viewModel.providerAPIKey(for: item.id),
+            models: models, selectedModel: self.viewModel.selectedModel(for: item.id)
+        ) { self.viewModel.isLocalEndpoint($0) }.canFetchModels
         let hasModels = !models.isEmpty
         let isEditing = self.viewModel.showingEditProvider && self.viewModel.selectedProviderID == item.id
         let iconColumnWidth = AISettingsLayout.providerRowControlHeight
@@ -1667,16 +1673,7 @@ extension AIEnhancementSettingsView {
     }
 
     private func providerBaseURL(for item: ProviderItem) -> String {
-        if item.id == self.viewModel.selectedProviderID {
-            return self.viewModel.openAIBaseURL
-        }
-        if let saved = self.viewModel.savedProviders.first(where: { $0.id == item.id }) {
-            return saved.baseURL
-        }
-        if ModelRepository.shared.isBuiltIn(item.id) {
-            return ModelRepository.shared.defaultBaseURL(for: item.id)
-        }
-        return ""
+        self.viewModel.providerBaseURL(for: item.id)
     }
 
     private func providerLogoView(for item: ProviderItem) -> some View {
@@ -2627,7 +2624,7 @@ extension AIEnhancementSettingsView {
                     self.viewModel.updateProviderAPIKey(trimmedKey, for: self.viewModel.selectedProviderID)
                     guard self.viewModel.saveProviderAPIKeys() else { return }
                     if self.viewModel.connectionStatus != .unknown {
-                        self.viewModel.connectionStatus = .unknown
+                        self.viewModel.updateConnectionStatus(.unknown, for: self.viewModel.selectedProviderID)
                         self.viewModel.connectionErrorMessage = ""
                     }
                     self.viewModel.showAPIKeyEditor = false
