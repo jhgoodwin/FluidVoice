@@ -221,6 +221,7 @@ final class FluidAudioProvider: TranscriptionProvider {
     private static let incrementalAppendBlockSamples = 240_000
     /// Audio over one 15 s window transcribes two chunks at once: ~1.6× faster than serial for ~185 MB more peak
     /// memory, identical transcripts (FluidAudio Documentation/ASR/SpeedPatches.md). Four chunks gain ~5% more.
+    /// Incremental dictation feeds ≤15 s windows, so it gets no speedup.
     private static let asrConfig = ASRConfig(parallelChunkConcurrency: 2)
     /// Mac capture opens on ~0.17 s of dead audio; 0.25 s of silence first lets Parakeet catch the first word.
     static let finalLeadInSamples = 4000

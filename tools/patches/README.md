@@ -12,6 +12,9 @@ Shipped ports:
   parallel. `FluidAudioProvider` uses 2 for the streaming and vocabulary-boosted `AsrManager`s: ~1.6×
   faster on clips over 15 s for ~185 MB more peak memory, transcripts identical to serial. Four chunks
   gain ~5% more for ~120 MB on top. The staged-weights validation manager keeps `ASRConfig.default`.
+  Only one-call dictations benefit: with "Faster Long Dictation" (`ExperimentalParakeetUnifiedFinalEnabled`)
+  or pronunciation matching on, `usesIncrementalDictation` feeds windows of 15 s or less and nothing runs in
+  parallel.
 - FluidInference #993: skips the CTC110m vocabulary inference pass entirely when no transcript word
   could be replaced. Only matters with custom-dictionary vocabulary boosting on.
 - FluidInference #1003: zeroes the CTC spotter's audio buffer before copying. `MLMultiArray` doesn't
@@ -58,8 +61,9 @@ pins together.
 Base FluidAudio revision: `386f7195670b77f2954c7ee143ec63fcb50b6c3b` (altic-dev/FluidAudio `main`
 at the time). `fluidaudio-preprocessor-compute-units.patch` applies cleanly there. It is published as
 commit `3857a6d56aad6c1de4df47e072484d000ad3de9a` on jhgoodwin/FluidAudio, branch
-`fix/preprocessor-compute-units`. `Package.swift`, `Fluid.xcodeproj/project.pbxproj`, and both
-`Package.resolved` files pin that revision; only the FluidAudio entries differ from upstream.
+`fix/preprocessor-compute-units`. The app now pins `9bdceb7`, which contains this commit (see
+"FluidAudio speed ports" above); only the FluidAudio entries in `Package.swift`,
+`Fluid.xcodeproj/project.pbxproj`, and both `Package.resolved` files differ from upstream.
 
 ## Symptom
 
