@@ -31,7 +31,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jhgoodwin/FluidAudio.git",
       "state" : {
-        "revision" : "3857a6d56aad6c1de4df47e072484d000ad3de9a"
+        "revision" : "9bdceb7ebfa16b2aa994cd9adfff01303ca597f4"
       }
     },
     {

@@ -219,6 +219,9 @@ final class FluidAudioProvider: TranscriptionProvider {
 
     private static let incrementalChunkingThresholdSamples = 240_000
     private static let incrementalAppendBlockSamples = 240_000
+    /// Audio over one 15 s window transcribes two chunks at once: ~1.6× faster than serial for ~185 MB more peak
+    /// memory, identical transcripts (FluidAudio Documentation/ASR/SpeedPatches.md). Four chunks gain ~5% more.
+    private static let asrConfig = ASRConfig(parallelChunkConcurrency: 2)
     /// Mac capture opens on ~0.17 s of dead audio; 0.25 s of silence first lets Parakeet catch the first word.
     static let finalLeadInSamples = 4000
 
@@ -630,7 +633,7 @@ final class FluidAudioProvider: TranscriptionProvider {
         self.temporalModels = models
         // Streaming manager: lightweight, no vocab boosting → avoids CTC/ANE contention
         // that causes intermittent SIGTRAP crashes during streaming inference.
-        let streamingManager = AsrManager(config: ASRConfig.default)
+        let streamingManager = AsrManager(config: Self.asrConfig)
         try await streamingManager.initialize(models: models)
         try Task.checkCancellation()
         DebugLogger.shared.debug("FluidAudioProvider: Streaming AsrManager initialized", source: "FluidAudioProvider")
@@ -650,7 +653,7 @@ final class FluidAudioProvider: TranscriptionProvider {
                         "FluidAudioProvider: Vocabulary bundle loaded with \(vocabBundle.vocabulary.terms.count) terms",
                         source: "FluidAudioProvider"
                     )
-                    let boostedManager = AsrManager(config: ASRConfig.default)
+                    let boostedManager = AsrManager(config: Self.asrConfig)
                     try await boostedManager.initialize(models: models)
                     try await boostedManager.configureVocabularyBoosting(
                         vocabulary: vocabBundle.vocabulary,

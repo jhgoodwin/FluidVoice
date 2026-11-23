@@ -1,3 +1,26 @@
+# FluidAudio speed ports (Nov 2026)
+
+FluidAudio pin: `9bdceb7ebfa16b2aa994cd9adfff01303ca597f4` on jhgoodwin/FluidAudio `main` (also
+`perf/parallel-chunks`). Supersedes `3857a6d…` on `fix/preprocessor-compute-units`: same preprocessor
+compute-units commit, plus ports of FluidInference speed patches that altic-dev never received.
+Full review, rejected ports (including #659 GPU encoder) and benchmarks:
+`Documentation/ASR/SpeedPatches.md` in the FluidAudio repo.
+
+Shipped ports:
+
+- FluidInference #507: opt-in `ASRConfig(parallelChunkConcurrency:)` transcribes long-audio chunks in
+  parallel. `FluidAudioProvider` uses 2 for the streaming and vocabulary-boosted `AsrManager`s: ~1.6×
+  faster on clips over 15 s for ~185 MB more peak memory, transcripts identical to serial. Four chunks
+  gain ~5% more for ~120 MB on top. The staged-weights validation manager keeps `ASRConfig.default`.
+- FluidInference #993: skips the CTC110m vocabulary inference pass entirely when no transcript word
+  could be replaced. Only matters with custom-dictionary vocabulary boosting on.
+- FluidInference #1003: zeroes the CTC spotter's audio buffer before copying. `MLMultiArray` doesn't
+  zero-fill, so the tail after a short clip could feed garbage to the CTC mel model (upstream #991).
+  Correctness fix, also boosting-only.
+
+No `.patch` file: these live as commits on the fork, not patches on altic-dev. Revert to altic-dev
+once equivalent changes merge there.
+
 # FluidAudio Nemotron compatibility patch
 
 Base FluidAudio revision: `3fd63887eef1dc25edea8263ce4b44aa854d898b`.
